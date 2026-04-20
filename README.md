@@ -1,6 +1,6 @@
-# 🎈 Blank app template
+# Pemodelan Topik Dinamis
 
-A simple Streamlit app template for you to modify!
+Pemodelan Topik Dinamis terhadap unggahan dan stance analysist komentar
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://pemodelan-topik-dinamis.streamlit.app/)
 
