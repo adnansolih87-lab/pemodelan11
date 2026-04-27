@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from gensim.models import CoherenceModel
 from gensim.corpora import Dictionary
 import numpy as np
+import os
 
 st.set_page_config(page_title="Dynamic Topic Modeling & Stance Analysis", layout="wide")
 
@@ -418,6 +419,12 @@ def render_expert_validation_ui():
             }
             st.session_state['expert_stance_annotations'].append(annotation)
             st.success("Validasi komentar berhasil disimpan.")
+            
+            # Save to CSV
+            results_dir = "results"
+            os.makedirs(results_dir, exist_ok=True)
+            pd.DataFrame(st.session_state['expert_stance_annotations']).to_csv(os.path.join(results_dir, f"expert_stance_annotations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"), index=False)
+            st.success("Validasi komentar berhasil disimpan dan diekspor ke CSV.")
 
         if st.session_state['expert_stance_annotations']:
             st.subheader("Hasil Validasi Komentar")
@@ -492,6 +499,12 @@ def render_expert_validation_ui():
             }
             st.session_state['expert_topic_annotations'].append(topic_annotation)
             st.success("Validasi topik berhasil disimpan.")
+            
+            # Save to CSV
+            results_dir = "results"
+            os.makedirs(results_dir, exist_ok=True)
+            pd.DataFrame(st.session_state['expert_topic_annotations']).to_csv(os.path.join(results_dir, f"expert_topic_annotations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"), index=False)
+            st.success("Validasi topik berhasil disimpan dan diekspor ke CSV.")
 
         if st.session_state['expert_topic_annotations']:
             st.subheader("Hasil Validasi Topik")
@@ -758,6 +771,15 @@ if uploaded_file:
 
         if st.button("🚀 Jalankan Analisis"):
             logging.info("Starting analysis: Topic Modeling and Stance Analysis")
+            
+            # Setup results directory
+            results_dir = "results"
+            os.makedirs(results_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Save original data
+            df.to_csv(os.path.join(results_dir, f"original_data_{timestamp}.csv"), index=False)
+            
             # ========== TOPIC MODELING ==========
             st.subheader("📊 Topic Modeling Processing")
             progress_container = st.container()
@@ -922,6 +944,9 @@ if uploaded_file:
             fig = topic_model.visualize_topics_over_time(topics_over_time)
             st.plotly_chart(fig, use_container_width=True)
             
+            # Save the plot
+            fig.write_html(os.path.join(results_dir, f"topics_over_time_{timestamp}.html"))
+            
             # Download button untuk Topics Over Time
             col1, col2 = st.columns(2)
             with col1:
@@ -975,6 +1000,9 @@ if uploaded_file:
                                 ax.set_title(f'Word Cloud for Topic {selected_topic_wc}', fontsize=16, pad=20)
                                 st.pyplot(fig)
                                 
+                                # Save the word cloud
+                                fig.savefig(os.path.join(results_dir, f"wordcloud_topic_{selected_topic_wc}_{timestamp}.png"))
+                                
                                 # Show top words as text
                                 with st.expander("📝 Top Words & Weights"):
                                     words_df = pd.DataFrame(topic_words, columns=['Word', 'Weight'])
@@ -1010,6 +1038,33 @@ if uploaded_file:
                     continue
                 topic_docs_mapping[int(topic_id)] = group['full_text_preprocessed'].head(5).tolist()
             st.session_state['topic_docs_mapping'] = topic_docs_mapping
+            
+            # Save all results to files
+            
+            # Save posts with topics
+            posts_df.to_csv(os.path.join(results_dir, f"posts_with_topics_{timestamp}.csv"), index=False)
+            
+            # Save comments with stance
+            comments_df.to_csv(os.path.join(results_dir, f"comments_with_stance_{timestamp}.csv"), index=False)
+            
+            # Save top topics
+            top_topics_df.to_csv(os.path.join(results_dir, f"top_topics_{timestamp}.csv"), index=False)
+            
+            # Save topic validation
+            topic_validation_df.to_csv(os.path.join(results_dir, f"topic_validation_{timestamp}.csv"), index=False)
+            
+            # Calculate and save coherence
+            coherence_results = calculate_topic_coherence(topic_model, docs)
+            import json
+            with open(os.path.join(results_dir, f"coherence_results_{timestamp}.json"), "w") as f:
+                json.dump(coherence_results, f)
+            
+            # Calculate and save topic metrics
+            topic_metrics = calculate_topic_metrics(topic_model, docs)
+            with open(os.path.join(results_dir, f"topic_metrics_{timestamp}.json"), "w") as f:
+                json.dump(topic_metrics, f)
+            
+            st.success(f"✅ Semua hasil analisis telah disimpan ke folder '{results_dir}'!")
             
             # Download button untuk Top Topics
             with col2:
@@ -1140,6 +1195,9 @@ if uploaded_file:
             )
             
             st.plotly_chart(fig, use_container_width=True)
+            
+            # Save the plot
+            fig.write_html(os.path.join(results_dir, f"sentiment_distribution_{timestamp}.html"))
             
             # Sample Comments Display
             st.subheader("📝 Sample Comments by Sentiment")
