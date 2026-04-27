@@ -40,24 +40,22 @@ def load_sentiment_model():
     logging.info("Completed load_sentiment_model")
     return model
 
-@st.cache_data
 def cached_fit_transform(_topic_model, _docs):
-    """Cached wrapper for BERTopic fit_transform to avoid recomputation"""
-    logging.info(f"Starting cached fit_transform on {len(_docs)} documents")
+    """Wrapper for BERTopic fit_transform"""
+    logging.info(f"Starting fit_transform on {len(_docs)} documents")
     topics, probs = _topic_model.fit_transform(_docs)
-    logging.info(f"Completed cached fit_transform: {len(set(topics))} topics found")
+    logging.info(f"Completed fit_transform: {len(set(topics))} topics found")
     return topics, probs
 
-@st.cache_data
 def cached_topics_over_time(_topic_model, _docs, _timestamps, _nr_bins=20):
-    """Cached wrapper for BERTopic topics_over_time calculation"""
-    logging.info("Calculating cached topics over time")
+    """Wrapper for BERTopic topics_over_time calculation"""
+    logging.info("Calculating topics over time")
     try:
         result = _topic_model.topics_over_time(_docs, _timestamps, nr_bins=_nr_bins)
     except ValueError as e:
         logging.warning(f"Error with nr_bins={_nr_bins}: {e}. Retrying with nr_bins=10.")
         result = _topic_model.topics_over_time(_docs, _timestamps, nr_bins=10)
-    logging.info("Completed cached topics over time calculation")
+    logging.info("Completed topics over time calculation")
     return result
 
 @st.cache_data
@@ -914,6 +912,9 @@ if uploaded_file:
                 # Jalankan actual fit_transform
                 topics, probs = cached_fit_transform(topic_model, docs)
                 
+                # Update session state with fitted model
+                st.session_state['topic_model'] = topic_model
+                
                 # Assign topics to posts_df
                 posts_df['Topik'] = topics
                 
@@ -1202,9 +1203,14 @@ if uploaded_file:
             # Show confidence distribution
             if 'confidence' in filtered_comments_df.columns:
                 st.subheader("📊 Distribusi Confidence Score")
-                confidence_counts = pd.cut(filtered_comments_df['confidence'], bins=[0, 0.6, 0.7, 0.8, 1.0], 
-                                         labels=['<0.6', '0.6-0.7', '0.7-0.8', '0.8+']).value_counts()
-                st.bar_chart(confidence_counts)
+                # Filter out None values and ensure numeric
+                valid_confidences = filtered_comments_df['confidence'].dropna()
+                if len(valid_confidences) > 0:
+                    confidence_counts = pd.cut(valid_confidences.astype(float), bins=[0, 0.6, 0.7, 0.8, 1.0], 
+                                             labels=['<0.6', '0.6-0.7', '0.7-0.8', '0.8+']).value_counts()
+                    st.bar_chart(confidence_counts)
+                else:
+                    st.warning("Tidak ada data confidence yang valid untuk ditampilkan.")
             
             # Download button untuk Stance Analysis Results
             col1, col2, col3 = st.columns(3)
