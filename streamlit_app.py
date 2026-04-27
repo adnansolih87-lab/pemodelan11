@@ -50,10 +50,10 @@ def cached_topics_over_time(_topic_model, _docs, _timestamps, _nr_bins=20):
     """Cached wrapper for topics_over_time calculation"""
     logging.info("Calculating cached topics over time")
     try:
-        result = _topic_model.topics_over_time(_docs, _timestamps, nr_bins=_nr_bins)
+        result = _topic_model.topics_over_time(_docs, _timestamps, n_bins=_nr_bins)
     except (ValueError, TypeError) as e:
-        logging.warning(f"Error dengan nr_bins={_nr_bins}: {e}. Menggunakan nr_bins=10.")
-        result = _topic_model.topics_over_time(_docs, _timestamps, nr_bins=10)
+        logging.warning(f"Error dengan n_bins={_nr_bins}: {e}. Menggunakan n_bins=10.")
+        result = _topic_model.topics_over_time(_docs, _timestamps, n_bins=10)
     logging.info("Completed cached topics over time calculation")
     return result
 
@@ -735,7 +735,7 @@ if uploaded_file:
                 status_text.text("🔄 Tahap 3/4: Menghitung Topics Over Time...")
                 progress_bar.progress(0.75)
                 logging.info("Calculating topics over time")
-                topics_over_time = cached_topics_over_time(topic_model, docs, timestamps, nr_bins=20)
+                topics_over_time = cached_topics_over_time(topic_model, docs, timestamps, _nr_bins=20)
                 
                 # Progress 4: Complete
                 status_text.text("✅ Tahap 4/4: Selesai!")
