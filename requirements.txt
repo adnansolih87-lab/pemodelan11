@@ -12,3 +12,6 @@ torch
 wordcloud
 matplotlib
 Cython
+nltk
+Sastrawi
+gensim

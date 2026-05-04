@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
 from transformers import pipeline
 from datetime import datetime
@@ -15,6 +16,57 @@ import plotly.graph_objects as go
 import numpy as np
 import os
 import time
+
+# Optional Indonesian NLP support
+try:
+    from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
+    from Sastrawi.StopWordRemover.StopWordRemoverFactory import StopWordRemoverFactory
+    import nltk
+    from nltk.corpus import stopwords
+except ImportError:
+    StemmerFactory = None
+    StopWordRemoverFactory = None
+    nltk = None
+    stopwords = None
+
+indonesia_stopwords = set()
+extra_stopwords = {
+    'yg', 'ya', 'nya', 'ga', 'gak', 'aja', 'kok', 'lah', 'mah', 'dong', 'deh', 'nih',
+    'lho', 'loh', 'bro', 'sis', 'gue', 'gua', 'lu', 'loe', 'kamu', 'aku', 'saya',
+    'dia', 'mereka', 'kita', 'kami', 'ini', 'itu', 'ada', 'tidak', 'bukan', 'belum',
+    'sudah', 'akan', 'dengan', 'yang', 'dan', 'atau', 'tapi', 'karena', 'jika',
+    'kalau', 'saat', 'ketika', 'untuk', 'dari', 'ke', 'di', 'pada', 'oleh', 'dalam',
+    'sebagai', 'seperti', 'hanya', 'juga', 'lagi', 'masih', 'bisa', 'boleh', 'harus',
+    'perlu', 'ingin', 'mau', 'suka', 'juga', 'yg'
+}
+
+if stopwords is not None:
+    try:
+        if nltk is not None:
+            nltk.data.find('corpora/stopwords')
+        indonesia_stopwords = set(stopwords.words('indonesian'))
+    except Exception:
+        try:
+            nltk.download('stopwords')
+            indonesia_stopwords = set(stopwords.words('indonesian'))
+        except Exception:
+            indonesia_stopwords = set()
+
+if StopWordRemoverFactory is not None:
+    try:
+        stop_factory = StopWordRemoverFactory()
+        indonesia_stopwords.update(stop_factory.get_stop_words())
+    except Exception:
+        pass
+
+indonesia_stopwords.update(extra_stopwords)
+
+stemmer = None
+if StemmerFactory is not None:
+    try:
+        stemmer = StemmerFactory().create_stemmer()
+    except Exception:
+        stemmer = None
 
 st.set_page_config(page_title="Dynamic Topic Modeling & Stance Analysis", layout="wide")
 
@@ -274,10 +326,12 @@ def preprocess_text(text):
     2. Hapus URL
     3. Hapus mention (@username)
     4. Hapus hashtag (#topic)
-    5. Hapus emoji
+    5. Hapus emoji dan karakter non-ASCII
     6. Hapus angka
     7. Hapus punctuation dan special characters
-    8. Hapus extra whitespace
+    8. Hapus stopwords Bahasa Indonesia
+    9. Stemming Bahasa Indonesia
+    10. Hapus kata pendek yang tidak bermakna
     
     Args:
         text: Input text
@@ -290,31 +344,23 @@ def preprocess_text(text):
         logging.info("Completed preprocess_text: empty text")
         return ""
     
-    text = str(text)
-    
-    # 1. Lowercase
-    text = text.lower()
-    
-    # 2. Hapus URL (http://... atau https://...)
+    text = str(text).lower()
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
-    
-    # 3. Hapus mention (@username)
     text = re.sub(r'@\w+', '', text)
-    
-    # 4. Hapus hashtag (#topic) - hanya hapus simbol #, tapi keep kata
     text = re.sub(r'#(\w+)', r'\1', text)
-    
-    # 5. Hapus emoji dan special Unicode characters
-    text = text.encode('ascii', 'ignore').decode('ascii')
-    
-    # 6. Hapus angka
+    text = re.sub(r'[^\x00-\x7f]', ' ', text)
     text = re.sub(r'\d+', '', text)
-    
-    # 7. Hapus punctuation dan special characters (keep hanya alphanumeric dan space)
-    text = re.sub(r'[^\w\s]', '', text)
-    
-    # 8. Hapus multiple spaces dan leading/trailing whitespace
+    text = re.sub(r'[^\w\s]', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
+    
+    words = [word for word in text.split() if word not in indonesia_stopwords and len(word) > 2]
+    text = ' '.join(words)
+    
+    if stemmer is not None and text:
+        try:
+            text = stemmer.stem(text)
+        except Exception:
+            pass
     
     logging.info(f"Completed preprocess_text: output length: {len(text)}")
     return text
@@ -833,7 +879,15 @@ if uploaded_file:
                 status_text.text("🔄 Tahap 1/4: Inisialisasi Model...")
                 progress_bar.progress(0.25)
                 logging.info("Initializing BERTopic model")
-                topic_model = BERTopic(embedding_model=embedding_model)
+
+                vectorizer_model = CountVectorizer(ngram_range=(1, 2), min_df=10, max_df=0.5)
+                topic_model = BERTopic(
+                    embedding_model=embedding_model,
+                    vectorizer_model=vectorizer_model,
+                    nr_topics=30,
+                    min_topic_size=10,
+                    calculate_probabilities=False,
+                )
                 
                 # Store model in session state immediately
                 st.session_state['topic_model'] = topic_model
