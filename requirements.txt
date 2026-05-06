@@ -11,7 +11,8 @@ transformers
 torch
 wordcloud
 matplotlib
-pillow
+pillow==9.5.0
+plotly==5.17.0
 Cython
 nltk
 Sastrawi

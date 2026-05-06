@@ -15,7 +15,7 @@ import logging
 import math
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import time
