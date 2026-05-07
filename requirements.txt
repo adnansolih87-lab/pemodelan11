@@ -1,7 +1,7 @@
 streamlit
 pandas
-numpy<2.0.0
-scipy==1.17.1
+numpy>=1.24.0
+scipy>=1.13.0
 smart_open
 bertopic
 sentence-transformers
@@ -11,10 +11,9 @@ transformers
 torch
 wordcloud
 matplotlib
-pillow==9.5.0
-plotly==5.17.0
+pillow>=11.0.0
+plotly>=5.17.0
 Cython
 nltk
 Sastrawi
-gensim
 gradio
