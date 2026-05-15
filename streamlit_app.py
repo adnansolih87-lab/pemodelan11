@@ -1915,431 +1915,185 @@ if uploaded_file:
                     key="download_top_topics_per_period"
                 )
 
-            # ========== STANCE ANALYSIS ==========
-            st.subheader("🗣️ Stance Analysis pada Komentar")
-            
-            comments_list = comments_df['full_text_comments_preprocessed'].tolist()
-            batch_size = 20
-            
-            logging.info(f"Starting stance analysis on {len(comments_list)} comments with batch size {batch_size}")
-            
-            # Progress bar with percentage
-            progress_bar = st.progress(0.0, text="🔄 Memulai analisis stance...")
+            # ========== STANCE ANALYSIS PER POSTINGAN ==========
+            st.subheader("🗣️ Stance Analysis per Postingan")
+
+            # Kelompokkan komentar berdasarkan postingan (conversation_id_str)
+            post_groups = {}
+            for idx, row in comments_df.iterrows():
+                post_id = row['conversation_id_str']
+                if post_id not in post_groups:
+                    post_groups[post_id] = []
+                post_groups[post_id].append({
+                    'comment': row['full_text_comments_preprocessed'],
+                    'index': idx
+                })
+
+            st.info(f"📊 Menganalisis stance untuk {len(post_groups)} postingan unik")
+
+            # Progress tracking
+            progress_bar = st.progress(0.0, text="🔄 Memulai analisis stance per postingan...")
             status_placeholder = st.empty()
-            
-            # Tips placeholder
-            tips_placeholder = st.empty()
-            tips_messages = [
-                "🤖 Model IndoBERT sedang menganalisis sentimen pro dan kontra...",
-                "📊 Mendeteksi opini masyarakat terhadap kebijakan luar negeri...",
-                "⚡ Hampir selesai, sedang menyusun hasil analisis...",
-                "✅ Analisis stance selesai! Menampilkan hasil..."
-            ]
-            
-            comments_df['sentiment'] = None
-            comments_df['confidence'] = None
-            
-            # Use cached stance analysis with progress updates
-            total_comments = len(comments_list)
-            processed = 0
-            
-            with st.spinner('🤖 Sedang membedah opini masyarakat...'):
+
+            # Lakukan stance analysis per postingan
+            post_stance_results = []
+            total_posts = len(post_groups)
+
+            for i, (post_id, comments) in enumerate(post_groups.items()):
+                # Gabungkan semua komentar dalam satu postingan menjadi satu teks
+                combined_text = ' '.join([c['comment'] for c in comments])
+
+                # Analisis stance pada teks gabungan
                 try:
-                    sentiments, confidences = cached_stance_analysis(sentiment_model, comments_list, batch_size)
+                    sentiment_result = sentiment_model([combined_text])[0]
+                    stance = sentiment_result['label']
+                    confidence = sentiment_result['score']
+
+                    # Apply confidence threshold
+                    if confidence < 0.7 and stance != 'NEUTRAL':
+                        stance = 'NEUTRAL'
+
+                    post_stance_results.append({
+                        'conversation_id_str': post_id,
+                        'combined_comments': combined_text,
+                        'post_stance': stance,
+                        'stance_confidence': confidence,
+                        'num_comments': len(comments),
+                        'comment_indices': [c['index'] for c in comments]
+                    })
+
                 except Exception as e:
-                    st.error(f"❌ Gagal melakukan analisis stance: {str(e)}")
-                    st.error("Ini mungkin disebabkan oleh masalah koneksi atau model sentiment tidak dapat diproses.")
-                    st.info("💡 Coba lagi nanti atau periksa koneksi internet Anda.")
-                    st.stop()
-                
-                # Simulate progress updates (since cached function doesn't update UI)
-                for i in range(0, total_comments, batch_size):
-                    processed = min(i + batch_size, total_comments)
-                    progress = processed / total_comments
-                    progress_bar.progress(progress, text=f"🔄 Menganalisis {processed}/{total_comments} komentar...")
-                    
-                    # Update tips
-                    tip_idx = min(int(progress * len(tips_messages)), len(tips_messages) - 1)
-                    tips_placeholder.info(tips_messages[tip_idx])
-                    
-                    # Small delay to show progress
-                    time.sleep(0.1)
-            
-            # Final updates
-            progress_bar.progress(1.0, text="✅ Analisis stance selesai!")
-            status_placeholder.success("✅ Analisis Stance Selesai!")
-            tips_placeholder.empty()
-            st.toast('Stance analysis completed!', icon='✅')
-            
-            # Assign results to dataframe
-            comments_df.loc[comments_df.index, 'sentiment'] = sentiments
-            comments_df.loc[comments_df.index, 'confidence'] = confidences
+                    logging.warning(f"Failed to analyze stance for post {post_id}: {e}")
+                    post_stance_results.append({
+                        'conversation_id_str': post_id,
+                        'combined_comments': combined_text,
+                        'post_stance': 'NEUTRAL',
+                        'stance_confidence': 0.0,
+                        'num_comments': len(comments),
+                        'comment_indices': [c['index'] for c in comments]
+                    })
 
-            # Map sentiment/confidence back to original dataset rows
-            df.loc[comments_df.index, 'sentiment'] = comments_df['sentiment']
-            df.loc[comments_df.index, 'confidence'] = comments_df['confidence']
+                # Update progress
+                progress = (i + 1) / total_posts
+                progress_bar.progress(progress, text=f"🔄 Menganalisis postingan {i+1}/{total_posts}...")
 
-            # Merge comments with post-topic mapping so stance can dihitung per post dan per topik
-            if 'conversation_id_str' in comments_df.columns and 'conversation_id_str' in posts_df.columns:
-                comments_df['_orig_index'] = comments_df.index
-                comments_df = comments_df.merge(
-                    posts_df[['conversation_id_str', 'Topik', 'created_at']],
+            progress_bar.progress(1.0, text="✅ Analisis stance per postingan selesai!")
+            status_placeholder.success("✅ Analisis Stance per Postingan Selesai!")
+
+            # Convert to DataFrame
+            post_stance_df = pd.DataFrame(post_stance_results)
+
+            # Gabungkan dengan informasi topik dan periode
+            if not post_stance_df.empty and 'conversation_id_str' in posts_df.columns:
+                post_stance_df = post_stance_df.merge(
+                    posts_df[['conversation_id_str', 'Topik', 'created_at', 'full_text']],
                     on='conversation_id_str',
                     how='left'
                 )
-                comments_df = comments_df.rename(columns={'created_at': 'post_created_at'})
-                comments_df['period_3m'] = comments_df['post_created_at'].apply(
+                post_stance_df['period_3m'] = post_stance_df['created_at'].apply(
                     lambda x: f"{x.year}-Q{((x.month - 1) // 3) + 1}" if pd.notna(x) else None
                 )
-                comments_df = comments_df.set_index('_orig_index')
-            else:
-                comments_df['Topik'] = None
-                comments_df['post_created_at'] = pd.NaT
-                comments_df['period_3m'] = None
 
-            logging.info("Completed stance analysis")
-            st.success("✅ Analisis Stance Selesai!")
-            
-            st.subheader("📋 Hasil Stance Analysis (20 Data Teratas)")
-            st.dataframe(filtered_comments_df.head(20), use_container_width=True)
-            
-            # Evaluation metrics if expert ground truth is available
-            if 'expert_stance' in comments_df.columns:
-                y_true = comments_df['expert_stance'].astype(str)
-                y_pred = comments_df['sentiment'].astype(str)
+            # Tampilkan hasil
+            if not post_stance_df.empty:
+                st.subheader("📋 Hasil Stance Analysis per Postingan")
+                display_cols = ['conversation_id_str', 'Topik', 'period_3m', 'post_stance',
+                              'stance_confidence', 'num_comments']
+                st.dataframe(post_stance_df[display_cols].head(20), use_container_width=True)
 
-                accuracy = accuracy_score(y_true, y_pred)
-                precision_macro = precision_score(y_true, y_pred, average="macro", zero_division=0)
-                recall_macro = recall_score(y_true, y_pred, average="macro", zero_division=0)
-                f1_macro = f1_score(y_true, y_pred, average="macro", zero_division=0)
-                precision_weighted = precision_score(y_true, y_pred, average="weighted", zero_division=0)
-                recall_weighted = recall_score(y_true, y_pred, average="weighted", zero_division=0)
-                f1_weighted = f1_score(y_true, y_pred, average="weighted", zero_division=0)
-                report_text = classification_report(y_true, y_pred, zero_division=0)
+                # Statistik stance per topik
+                if 'Topik' in post_stance_df.columns:
+                    st.subheader("📊 Distribusi Stance per Topik")
 
-                st.subheader("📊 Evaluation Metrics")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Accuracy", f"{accuracy:.3f}")
-                    st.metric("Precision (macro)", f"{precision_macro:.3f}")
-                with col2:
-                    st.metric("Recall (macro)", f"{recall_macro:.3f}")
-                    st.metric("F1 Score (macro)", f"{f1_macro:.3f}")
-                with col3:
-                    st.metric("Precision (weighted)", f"{precision_weighted:.3f}")
-                    st.metric("Recall (weighted)", f"{recall_weighted:.3f}")
-                    st.metric("F1 Score (weighted)", f"{f1_weighted:.3f}")
+                    topic_stance_dist = post_stance_df.groupby(['Topik', 'post_stance']).size().reset_index(name='count')
+                    topic_stance_dist = topic_stance_dist[topic_stance_dist['Topik'] != -1]  # Exclude outlier topics
 
-                with st.expander("📄 Classification Report"):
-                    st.text(report_text)
-            else:
-                st.info("Upload dataset dengan kolom 'expert_stance' untuk menampilkan evaluasi metrik (accuracy, precision, recall, F1).")
-            
-            # Add explanation about neutral classification
-            with st.expander("ℹ️ Penjelasan Klasifikasi Netral"):
-                st.markdown("""
-                **Mengapa banyak komentar diklasifikasikan sebagai Netral?**
-                
-                1. **Sifat Data**: Komentar politik Indonesia cenderung formal dan factual
-                2. **Model Training**: Model dilatih pada data Twitter yang lebih emosional  
-                3. **Confidence Threshold**: Prediksi dengan confidence < 0.7 otomatis dinetralisasi
-                4. **Preprocessing**: Emoji dan karakter khusus yang membawa sentimen dihapus
-                
-                **Distribusi Confidence Score:**
-                - **Tinggi (0.8+)**: Stance kuat, jarang netral
-                - **Sedang (0.6-0.8)**: Ambiguous, sering dinetralisasi  
-                - **Rendah (<0.6)**: Tidak yakin, otomatis netral
-                """)
-            
-            # Show confidence distribution
-            if 'confidence' in filtered_comments_df.columns:
-                st.subheader("📊 Distribusi Confidence Score")
-                # Filter out None values and ensure numeric
-                valid_confidences = filtered_comments_df['confidence'].dropna()
-                if len(valid_confidences) > 0:
-                    confidence_counts = pd.cut(valid_confidences.astype(float), bins=[0, 0.6, 0.7, 0.8, 1.0], 
-                                             labels=['<0.6', '0.6-0.7', '0.7-0.8', '0.8+']).value_counts()
-                    st.bar_chart(confidence_counts)
-                else:
-                    st.warning("Tidak ada data confidence yang valid untuk ditampilkan.")
-            
-            # Download button untuk Stance Analysis Results
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.download_button(
-                    label="💾 Simpan Semua Hasil (CSV)",
-                    data=convert_df_to_csv(comments_df),
-                    file_name="stance_analysis_results.csv",
-                    mime="text/csv",
-                    key="download_stance_all"
-                )
-
-            # Summary sentiment
-            sentiment_counts = filtered_comments_df['sentiment'].value_counts()
-            total_comments = len(filtered_comments_df)
-            
-            # Summary Metrics
-            st.subheader("📊 Ringkasan Hasil Analisis Stance")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            # Calculate percentages
-            positive_pct = (sentiment_counts.get('POSITIVE', 0) / total_comments * 100) if total_comments > 0 else 0
-            negative_pct = (sentiment_counts.get('NEGATIVE', 0) / total_comments * 100) if total_comments > 0 else 0
-            neutral_pct = (sentiment_counts.get('NEUTRAL', 0) / total_comments * 100) if total_comments > 0 else 0
-            
-            with col1:
-                st.metric("👍 Support", f"{sentiment_counts.get('POSITIVE', 0)}", f"{positive_pct:.1f}%")
-            with col2:
-                st.metric("👎 Oppose", f"{sentiment_counts.get('NEGATIVE', 0)}", f"{negative_pct:.1f}%")
-            with col3:
-                st.metric("😐 Neutral", f"{sentiment_counts.get('NEUTRAL', 0)}", f"{neutral_pct:.1f}%")
-            
-            # Insight Otomatis
-            st.subheader("🧠 Insight Utama")
-            if positive_pct > negative_pct and positive_pct > neutral_pct:
-                st.success(f"**Mayoritas mendukung** ({positive_pct:.1f}%) - Sentimen positif dominan")
-            elif negative_pct > positive_pct and negative_pct > neutral_pct:
-                st.error(f"**Mayoritas menentang** ({negative_pct:.1f}%) - Perlu perhatian khusus")
-            else:
-                st.info(f"**Opini terbagi** - Netral ({neutral_pct:.1f}%) atau seimbang")
-            
-            # Visualisasi dengan opsi chart type
-            st.subheader("📈 Distribusi Stance")
-            
-            chart_type = st.radio(
-                "Pilih jenis visualisasi:",
-                ["Bar Chart", "Pie Chart"],
-                horizontal=True,
-                key="stance_chart_type"
-            )
-            
-            if chart_type == "Bar Chart":
-                # Create interactive Plotly bar chart
-                fig = go.Figure(data=[
-                    go.Bar(
-                        x=sentiment_counts.index,
-                        y=sentiment_counts.values,
-                        marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1'],  # Colors for negative, neutral, positive
-                        hovertemplate='<b>%{x}</b><br>Count: %{y}<br>Percentage: %{customdata:.1f}%<extra></extra>',
-                        customdata=[negative_pct, neutral_pct, positive_pct]
-                    )
-                ])
-                
-                fig.update_layout(
-                    title="Sentiment Distribution (Bar Chart)",
-                    xaxis_title="Sentiment",
-                    yaxis_title="Count",
-                    showlegend=False
-                )
-            else:
-                # Pie Chart
-                colors = ['#FF6B6B', '#4ECDC4', '#45B7D1']  # negative, neutral, positive
-                fig = go.Figure(data=[
-                    go.Pie(
-                        labels=sentiment_counts.index,
-                        values=sentiment_counts.values,
-                        marker_colors=colors,
-                        hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>',
-                        textinfo='label+percent',
-                        textposition='inside'
-                    )
-                ])
-                
-                fig.update_layout(
-                    title="Sentiment Distribution (Pie Chart)",
-                    showlegend=True
-                )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Save the plot
-            fig.write_html(os.path.join(results_dir, f"sentiment_distribution_{timestamp}.html"))
-            
-            # Sample Comments Display dengan Tabs
-            st.subheader("📝 Sample Comments by Stance")
-            
-            # Create tabs for each sentiment
-            tab1, tab2, tab3 = st.tabs(["👍 Support", "👎 Oppose", "😐 Neutral"])
-            
-            def display_sample_comments(sentiment_type, tab):
-                with tab:
-                    # Get sample comments for selected sentiment
-                    sentiment_comments = filtered_comments_df[
-                        filtered_comments_df['sentiment'] == sentiment_type
-                    ]['full_text_comments'].dropna()
-                    
-                    if not sentiment_comments.empty:
-                        # Show random samples (up to 5)
-                        num_samples = min(5, len(sentiment_comments))
-                        sample_comments = sentiment_comments.sample(n=num_samples, random_state=42)
-                        
-                        st.markdown(f"**{num_samples} contoh komentar {sentiment_type.lower()}:**")
-                        
-                        for idx, comment in enumerate(sample_comments, 1):
-                            with st.expander(f"💬 Sample {idx}"):
-                                st.write(comment)
-                                # Show preprocessed version too
-                                preprocessed = filtered_comments_df[
-                                    filtered_comments_df['full_text_comments'] == comment
-                                ]['full_text_comments_preprocessed'].iloc[0] if len(filtered_comments_df[
-                                    filtered_comments_df['full_text_comments'] == comment
-                                ]) > 0 else "N/A"
-                                st.markdown(f"**Preprocessed:** {preprocessed}")
-                    else:
-                        st.info(f"Tidak ada komentar {sentiment_type.lower()} dengan filter saat ini.")
-            
-            # Display tabs content
-            display_sample_comments("POSITIVE", tab1)
-            display_sample_comments("NEGATIVE", tab2)
-            display_sample_comments("NEUTRAL", tab3)
-            
-            # WordCloud per Stance
-            st.subheader("☁️ Word Clouds per Stance")
-            
-            wc_col1, wc_col2, wc_col3 = st.columns(3)
-            
-            def generate_wordcloud(sentiment_type, column, title):
-                with column:
-                    # Get comments for this sentiment
-                    sentiment_comments = filtered_comments_df[
-                        filtered_comments_df['sentiment'] == sentiment_type
-                    ]['full_text_comments_preprocessed'].dropna()
-                    
-                    if not sentiment_comments.empty:
-                        # Combine all text
-                        all_text = ' '.join(sentiment_comments)
-                        
-                        # Generate word cloud
-                        wordcloud = WordCloud(
-                            width=300, 
-                            height=200,
-                            background_color='white',
-                            colormap='viridis' if sentiment_type == 'POSITIVE' else ('Reds' if sentiment_type == 'NEGATIVE' else 'Blues'),
-                            max_words=50
-                        ).generate(all_text)
-                        
-                        # Display
-                        fig, ax = plt.subplots(figsize=(3, 2))
-                        ax.imshow(wordcloud, interpolation='bilinear')
-                        ax.axis('off')
-                        ax.set_title(title, fontsize=10)
-                        st.pyplot(fig)
-                    else:
-                        st.info(f"Tidak ada data untuk {title.lower()}")
-            
-            generate_wordcloud("POSITIVE", wc_col1, "👍 Support Words")
-            generate_wordcloud("NEGATIVE", wc_col2, "👎 Oppose Words") 
-            generate_wordcloud("NEUTRAL", wc_col3, "😐 Neutral Words")
-            
-            # ========== AGREGASI STANCE PER POST DAN PER TOPIK 3 BULAN ==========
-            st.subheader("📊 Stance Komentar per Post dan Topik 3 Bulanan")
-
-            per_post_sentiment = pd.DataFrame()
-            topic_period_stance = pd.DataFrame()
-            if 'Topik' in comments_df.columns and 'period_3m' in comments_df.columns:
-                per_post_sentiment = comments_df.groupby(
-                    ['conversation_id_str', 'Topik', 'period_3m']
-                )['sentiment'].value_counts().unstack(fill_value=0)
-
-                for sentiment_label in ['NEGATIVE', 'NEUTRAL', 'POSITIVE']:
-                    if sentiment_label not in per_post_sentiment.columns:
-                        per_post_sentiment[sentiment_label] = 0
-
-                per_post_sentiment['total_comments'] = per_post_sentiment[
-                    ['NEGATIVE', 'NEUTRAL', 'POSITIVE']
-                ].sum(axis=1)
-
-                def determine_post_stance(row):
-                    if row['POSITIVE'] > row['NEGATIVE'] and row['POSITIVE'] > row['NEUTRAL']:
-                        return 'POSITIVE'
-                    if row['NEGATIVE'] > row['POSITIVE'] and row['NEGATIVE'] > row['NEUTRAL']:
-                        return 'NEGATIVE'
-                    return 'NEUTRAL'
-
-                per_post_sentiment['post_stance'] = per_post_sentiment.apply(determine_post_stance, axis=1)
-                per_post_sentiment = per_post_sentiment.reset_index()
-
-                topic_period_stance = per_post_sentiment.groupby(
-                    ['Topik', 'period_3m', 'post_stance']
-                ).size().reset_index(name='Jumlah')
-
-            if not per_post_sentiment.empty:
-                st.markdown(
-                    "Analisis berikut menunjukkan stance yang dihitung per postingan berdasarkan komentar, "
-                    "kemudian digabungkan menurut topik dan periode 3 bulanan."
-                )
-                st.dataframe(
-                    per_post_sentiment[['conversation_id_str', 'Topik', 'period_3m', 'total_comments', 'POSITIVE', 'NEGATIVE', 'NEUTRAL', 'post_stance']].head(20),
-                    use_container_width=True
-                )
-
-                if not topic_period_stance.empty:
-                    fig = px.bar(
-                        topic_period_stance,
-                        x='period_3m',
-                        y='Jumlah',
-                        color='post_stance',
-                        facet_col='Topik',
-                        facet_col_wrap=3,
-                        barmode='group',
-                        title='Distribusi Stance per Topik dan Periode 3 Bulanan',
-                        category_orders={'post_stance': ['NEGATIVE', 'NEUTRAL', 'POSITIVE']},
-                        color_discrete_map={
-                            'NEGATIVE': '#FF6B6B',
-                            'NEUTRAL': '#45B7D1',
-                            'POSITIVE': '#4ECDC4'
-                        }
-                    )
-                    fig.update_layout(
-                        xaxis_title='Periode 3 Bulanan',
-                        yaxis_title='Jumlah Postingan',
-                        legend_title='Post Stance',
-                        margin=dict(t=45, b=120)
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                    fig.write_html(os.path.join(results_dir, f"stance_per_topic_period_{timestamp}.html"))
-
-                    st.download_button(
-                        label="💾 Simpan Distribusi Stance per Topik dan Periode (HTML)",
-                        data=convert_figure_to_html(fig),
-                        file_name="stance_per_topic_period.html",
-                        mime="text/html",
-                        key="download_stance_per_topic_period"
-                    )
-
-                    with st.expander("📋 Tabel Distribusi Stance per Topik dan Periode"):
-                        st.dataframe(
-                            topic_period_stance.pivot_table(
-                                index=['Topik', 'period_3m'],
-                                columns='post_stance',
-                                values='Jumlah',
-                                fill_value=0
-                            )
+                    if not topic_stance_dist.empty:
+                        fig = px.bar(
+                            topic_stance_dist,
+                            x='Topik',
+                            y='count',
+                            color='post_stance',
+                            title='Distribusi Stance per Topik (berdasarkan Postingan)',
+                            barmode='group',
+                            color_discrete_map={
+                                'POSITIVE': '#4ECDC4',
+                                'NEGATIVE': '#FF6B6B',
+                                'NEUTRAL': '#45B7D1'
+                            }
                         )
-                else:
-                    st.warning("Tidak ada data distribusi stance berdasarkan post, topik, dan periode.")
-            else:
-                st.warning("Tidak ada data komentar atau asosiasi topik untuk menghitung stance per post.")
+                        st.plotly_chart(fig, use_container_width=True)
 
-            # Download button untuk Summary Sentiment
-            summary_df = sentiment_counts.reset_index()
-            summary_df.columns = ['Sentiment', 'Jumlah']
-            with col2:
+                # Statistik stance per periode 3 bulan
+                if 'period_3m' in post_stance_df.columns:
+                    st.subheader("📈 Evolusi Stance per Periode 3 Bulan")
+
+                    period_stance_dist = post_stance_df.groupby(['period_3m', 'post_stance']).size().reset_index(name='count')
+
+                    if not period_stance_dist.empty:
+                        fig = px.line(
+                            period_stance_dist,
+                            x='period_3m',
+                            y='count',
+                            color='post_stance',
+                            markers=True,
+                            title='Evolusi Stance Publik per Periode 3 Bulan',
+                            color_discrete_map={
+                                'POSITIVE': '#4ECDC4',
+                                'NEGATIVE': '#FF6B6B',
+                                'NEUTRAL': '#45B7D1'
+                            }
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+
+                # Heatmap Topik vs Periode vs Stance
+                if 'Topik' in post_stance_df.columns and 'period_3m' in post_stance_df.columns:
+                    st.subheader("🔥 Heatmap: Topik vs Periode vs Stance")
+
+                    heatmap_data = post_stance_df.groupby(['Topik', 'period_3m', 'post_stance']).size().reset_index(name='count')
+                    heatmap_data = heatmap_data[heatmap_data['Topik'] != -1]
+
+                    if not heatmap_data.empty:
+                        # Pivot untuk heatmap
+                        heatmap_pivot = heatmap_data.pivot_table(
+                            index=['Topik', 'period_3m'],
+                            columns='post_stance',
+                            values='count',
+                            fill_value=0
+                        ).reset_index()
+
+                        # Buat heatmap untuk setiap stance
+                        for stance in ['POSITIVE', 'NEGATIVE', 'NEUTRAL']:
+                            if stance in heatmap_pivot.columns:
+                                fig = px.imshow(
+                                    heatmap_pivot.pivot(index='Topik', columns='period_3m', values=stance),
+                                    title=f'Heatmap {stance} Stance: Topik vs Periode',
+                                    labels=dict(x="Periode 3 Bulan", y="Topik", color="Jumlah Postingan")
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+
+                # Download hasil
                 st.download_button(
-                    label="💾 Simpan Summary (CSV)",
-                    data=convert_df_to_csv(summary_df),
-                    file_name="sentiment_summary.csv",
+                    label="💾 Simpan Hasil Stance per Postingan (CSV)",
+                    data=convert_df_to_csv(post_stance_df),
+                    file_name="stance_per_postingan.csv",
                     mime="text/csv",
-                    key="download_summary"
+                    key="download_stance_per_post"
                 )
-            
+
+            else:
+                st.warning("Tidak ada data postingan untuk analisis stance.")
+
             # Create a comprehensive report
             with col3:
                 # Combined report
-                sentiment_lines = ''.join(
-                    f"- {sent}: {count:,}\n" for sent, count in sentiment_counts.items()
-                )
+                if not post_stance_df.empty:
+                    sentiment_lines = ''.join(
+                        f"- {sent}: {count:,}\n" for sent, count in post_stance_df['post_stance'].value_counts().items()
+                    )
+                else:
+                    sentiment_lines = "- Tidak ada data stance\n"
+                
                 report = f"""
 LAPORAN ANALISIS TOPIK DINAMIS DAN STANCE ANALYSIS
 =====================================================
@@ -2353,8 +2107,8 @@ HASIL TOPIC MODELING:
 - Jumlah Topics: {len(top_topics_df):,}
 - Model: BERTopic
 
-HASIL STANCE ANALISIS:
-- Total Komentar Dianalisis: {len(comments_df):,}
+HASIL STANCE ANALISIS PER POSTINGAN:
+- Total Postingan Dianalisis: {len(post_stance_df) if not post_stance_df.empty else 0:,}
 {sentiment_lines}
 
 Dibuat pada: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}
