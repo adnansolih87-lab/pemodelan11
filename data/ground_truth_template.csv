@@ -1,0 +1,5 @@
+post_id,post_text,comment_id,comment_text,label_expected,labeler_id,notes
+0,"Contoh post: Program renovasi rumah diluncurkan","0_1","@KotaNusantara Program renovasi rumah dari Presiden Prabowo bikin hati lega masa depan makin terjamin",Positive,,
+0,"Contoh post: Program renovasi rumah diluncurkan","0_2","Tapi ini cuma untuk golongan kaya",Negative,,
+1,"Contoh post 2","1_1","Presiden membuat keputusan ini setelah konsultasi menyeluruh.",Neutral,,
+2,"Contoh post 3","2_1","Menteri paling gak becus.",Negative,,
